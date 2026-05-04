@@ -922,7 +922,11 @@ def save_config(target: str, action: str = "write_memory", checkpoint_name: str 
         if action == "checkpoint":
             if not checkpoint_name:
                 return _json_dumps(ArubaCxError(code=ErrorCode.API_ERROR, message="checkpoint_name is required for checkpoint action", target=target).model_dump())
-            client.post(target, "/fullconfigs/checkpoints", {"name": checkpoint_name})
+            # AOS-CX REST API: PUT /fullconfigs/{checkpoint_name}?from=<running-config-url>
+            target_obj = client._targets.get(target)
+            api_ver = target_obj.api_version if target_obj else "v10.13"
+            from_param = f"/rest/{api_ver}/fullconfigs/running-config"
+            client.put(target, f"/fullconfigs/{checkpoint_name}?from={from_param}", None)
             _audit_log("save_config", target, "success", change_request_number=change_request_number)
             return _json_dumps({"status": "success", "action": "checkpoint", "checkpoint_name": checkpoint_name})
         else:
