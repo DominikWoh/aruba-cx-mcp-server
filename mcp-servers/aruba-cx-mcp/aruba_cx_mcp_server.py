@@ -1,6 +1,6 @@
 """Aruba CX MCP Server — FastMCP server exposing Aruba CX switch management tools.
 
-Provides 16 MCP tools (11 read + 5 write) over stdio transport for managing
+Provides 20 MCP tools (14 read + 6 write) over stdio transport for managing
 Aruba CX switches via the AOS-CX REST API.
 """
 
@@ -1751,6 +1751,55 @@ def get_logs(
         return _json_dumps(exc.error.model_dump())
     except Exception as exc:
         _audit_log("get_logs", target, "error")
+        return _json_dumps(ArubaCxError(code=ErrorCode.API_ERROR, message=str(exc), target=target).model_dump())
+
+
+# ---------------------------------------------------------------------------
+# Cable Diagnostic (TDR) tool
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+def run_cable_test(target: str, interface: str) -> str:
+    """Run a TDR cable diagnostic test on a copper interface. Returns per-pair status (open/short/ok) and estimated cable length. The interface must be a copper (RJ45) port — fiber ports do not support TDR. Read operation (non-destructive but may briefly flap the link)."""
+    try:
+        port_encoded = interface.replace("/", "%2F")
+        target_obj = client._targets.get(target)
+        api_ver = target_obj.api_version if target_obj else "v10.13"
+
+        # Initiate the cable diagnostic test
+        # The body requires the full resource URI for the interface
+        body = {
+            "interface": f"/rest/{api_ver}/system/interfaces/{port_encoded}",
+            "test": "cable_diagnostic",
+        }
+        client.post(
+            target,
+            f"/system/interfaces/{port_encoded}/interface_diag_tests",
+            body,
+        )
+
+        # Wait briefly for results then retrieve them
+        import time
+        time.sleep(5)
+
+        # GET the diag test results
+        results = client.get(
+            target,
+            f"/system/interfaces/{port_encoded}/interface_diag_tests",
+        )
+
+        _audit_log("run_cable_test", target, "success")
+        return _json_dumps({
+            "status": "success",
+            "interface": interface,
+            "results": results,
+        })
+    except ArubaCxException as exc:
+        _audit_log("run_cable_test", target, "error")
+        return _json_dumps(exc.error.model_dump())
+    except Exception as exc:
+        _audit_log("run_cable_test", target, "error")
         return _json_dumps(ArubaCxError(code=ErrorCode.API_ERROR, message=str(exc), target=target).model_dump())
 
 
