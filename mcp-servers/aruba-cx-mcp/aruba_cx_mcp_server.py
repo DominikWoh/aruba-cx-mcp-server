@@ -553,6 +553,11 @@ def get_interfaces(target: str, interface: str = "", detail: str = "config") -> 
         if interface:
             encoded = interface.replace("/", "%2F")
             data = client.get(target, f"/system/interfaces/{encoded}?depth=2")
+            # Also fetch status fields (link transitions, link state change time)
+            try:
+                status_data = client.get(target, f"/system/interfaces/{encoded}?selector=status")
+            except ArubaCxException:
+                status_data = {}
             vlan_id = _extract_vlan(data)
             # Check for trunk VLANs
             trunks = data.get("vlan_trunks", {})
@@ -560,13 +565,32 @@ def get_interfaces(target: str, interface: str = "", detail: str = "config") -> 
             result = {
                 "name": data.get("name", interface),
                 "admin_state": data.get("admin_state", data.get("admin", "unknown")),
-                "link_state": data.get("link_state", "unknown"),
+                "link_state": data.get("link_state", status_data.get("link_state", "unknown")),
                 "speed": str(data.get("speed", data.get("link_speed", "unknown"))),
                 "description": data.get("description"),
                 "duplex": data.get("duplex"),
                 "vlan_id": vlan_id,
                 "vlan_mode": data.get("vlan_mode"),
             }
+            # Include link stability info from status data
+            link_transitions = status_data.get("link_state_transition_count") or data.get("link_state_transition_count")
+            if link_transitions is not None:
+                result["link_transitions"] = link_transitions
+            link_change_time = status_data.get("link_state_change_time") or data.get("link_state_change_time")
+            if link_change_time is not None:
+                result["link_state_change_time"] = link_change_time
+            # Link stability: link_resets from statistics = link transitions count
+            try:
+                stats_data = client.get(target, f"/system/interfaces/{encoded}?selector=statistics")
+                link_resets_count = stats_data.get("link_resets")
+                if link_resets_count is not None:
+                    result["link_transitions"] = link_resets_count
+            except ArubaCxException:
+                pass
+            # link_resets_timestamp from status = seconds since boot of last link change
+            link_resets_ts = status_data.get("link_resets_timestamp")
+            if link_resets_ts is not None:
+                result["link_resets_timestamp"] = link_resets_ts
             if trunk_vlans:
                 result["trunk_vlans"] = trunk_vlans
             if detail in ("stats", "full"):
