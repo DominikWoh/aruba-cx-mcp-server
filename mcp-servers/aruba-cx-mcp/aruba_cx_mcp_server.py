@@ -1767,36 +1767,42 @@ def run_cable_test(target: str, interface: str) -> str:
         target_obj = client._targets.get(target)
         api_ver = target_obj.api_version if target_obj else "v10.13"
 
+        # Delete any existing test result first (required before re-running)
+        try:
+            client.delete(
+                target,
+                f"/system/interfaces/{port_encoded}/interface_diag_tests/cable_diagnostic",
+            )
+        except ArubaCxException:
+            pass  # 404 if no previous test exists — that's fine
+
         # Initiate the cable diagnostic test
         # The body requires the full resource URI for the interface
         body = {
             "interface": f"/rest/{api_ver}/system/interfaces/{port_encoded}",
             "test": "cable_diagnostic",
         }
-        # POST may 500 if a test already exists; that's OK — we'll just read results
-        try:
-            client.post(
-                target,
-                f"/system/interfaces/{port_encoded}/interface_diag_tests",
-                body,
-            )
-        except ArubaCxException as post_exc:
-            # If 500 or 409, test likely already exists — proceed to read results
-            if post_exc.error.http_status not in (500, 409):
-                raise
+        client.post(
+            target,
+            f"/system/interfaces/{port_encoded}/interface_diag_tests",
+            body,
+        )
 
-        # Poll for results (test can take up to 15 seconds on long cables)
+        # Poll for results (test can take 10-30 seconds depending on cable length)
         import time
         results = {}
-        for _ in range(4):
+        for _ in range(6):
             time.sleep(5)
-            results = client.get(
-                target,
-                f"/system/interfaces/{port_encoded}/interface_diag_tests/cable_diagnostic",
-            )
-            state = results.get("state", "")
-            if state not in ("preparing", "in_progress"):
-                break
+            try:
+                results = client.get(
+                    target,
+                    f"/system/interfaces/{port_encoded}/interface_diag_tests/cable_diagnostic",
+                )
+                state = results.get("state", "")
+                if state not in ("preparing", "in_progress", "running"):
+                    break
+            except ArubaCxException:
+                continue
 
         _audit_log("run_cable_test", target, "success")
         return _json_dumps({
