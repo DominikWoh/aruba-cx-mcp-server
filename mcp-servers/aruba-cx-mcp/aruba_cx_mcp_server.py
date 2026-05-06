@@ -587,10 +587,24 @@ def get_interfaces(target: str, interface: str = "", detail: str = "config") -> 
                     result["link_transitions"] = link_resets_count
             except ArubaCxException:
                 pass
-            # link_resets_timestamp from status = seconds since boot of last link change
+            # link_resets_timestamp from status = monotonic seconds when last link change occurred
+            # To get "link up for X seconds", we need the system's current monotonic time
+            # Fetch system boot_time to calculate link_up_duration
             link_resets_ts = status_data.get("link_resets_timestamp")
             if link_resets_ts is not None:
-                result["link_resets_timestamp"] = link_resets_ts
+                try:
+                    sys_data = client.get(target, "/system?selector=status&attributes=boot_time")
+                    boot_time = sys_data.get("boot_time")
+                    if boot_time is not None:
+                        # boot_time is epoch seconds; current_monotonic = now - boot_time
+                        import time as _time
+                        now_epoch = int(_time.time())
+                        current_monotonic = now_epoch - int(boot_time)
+                        link_up_seconds = current_monotonic - int(link_resets_ts)
+                        if link_up_seconds >= 0:
+                            result["link_up_seconds"] = link_up_seconds
+                except (ArubaCxException, Exception):
+                    pass
             if trunk_vlans:
                 result["trunk_vlans"] = trunk_vlans
             if detail in ("stats", "full"):
