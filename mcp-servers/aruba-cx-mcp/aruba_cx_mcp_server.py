@@ -1779,14 +1779,14 @@ def run_cable_test(target: str, interface: str) -> str:
             body,
         )
 
-        # Wait briefly for results then retrieve them
+        # Wait for the test to complete then retrieve detailed results
         import time
         time.sleep(5)
 
-        # GET the diag test results
+        # GET the detailed cable_diagnostic results
         results = client.get(
             target,
-            f"/system/interfaces/{port_encoded}/interface_diag_tests",
+            f"/system/interfaces/{port_encoded}/interface_diag_tests/cable_diagnostic",
         )
 
         _audit_log("run_cable_test", target, "success")
