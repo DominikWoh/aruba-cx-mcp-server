@@ -1773,21 +1773,30 @@ def run_cable_test(target: str, interface: str) -> str:
             "interface": f"/rest/{api_ver}/system/interfaces/{port_encoded}",
             "test": "cable_diagnostic",
         }
-        client.post(
-            target,
-            f"/system/interfaces/{port_encoded}/interface_diag_tests",
-            body,
-        )
+        # POST may 500 if a test already exists; that's OK — we'll just read results
+        try:
+            client.post(
+                target,
+                f"/system/interfaces/{port_encoded}/interface_diag_tests",
+                body,
+            )
+        except ArubaCxException as post_exc:
+            # If 500 or 409, test likely already exists — proceed to read results
+            if post_exc.error.http_status not in (500, 409):
+                raise
 
-        # Wait for the test to complete then retrieve detailed results
+        # Poll for results (test can take up to 15 seconds on long cables)
         import time
-        time.sleep(5)
-
-        # GET the detailed cable_diagnostic results
-        results = client.get(
-            target,
-            f"/system/interfaces/{port_encoded}/interface_diag_tests/cable_diagnostic",
-        )
+        results = {}
+        for _ in range(4):
+            time.sleep(5)
+            results = client.get(
+                target,
+                f"/system/interfaces/{port_encoded}/interface_diag_tests/cable_diagnostic",
+            )
+            state = results.get("state", "")
+            if state not in ("preparing", "in_progress"):
+                break
 
         _audit_log("run_cable_test", target, "success")
         return _json_dumps({
