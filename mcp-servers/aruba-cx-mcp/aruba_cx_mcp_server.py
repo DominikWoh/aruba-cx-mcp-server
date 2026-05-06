@@ -1796,7 +1796,7 @@ def run_cable_test(target: str, interface: str) -> str:
             try:
                 results = client.get(
                     target,
-                    f"/system/interfaces/{port_encoded}/interface_diag_tests/cable_diagnostic",
+                    f"/system/interfaces/{port_encoded}/interface_diag_tests/cable_diagnostic?selector=status",
                 )
                 state = results.get("state", "")
                 if state not in ("preparing", "in_progress", "running"):
